@@ -95,6 +95,15 @@ test('resolveOutDir precedence: flag, env, config, cwd', () => {
   assert.equal(resolveOutDir({ env: {}, config: null, cwd }), '/work');
 });
 
+test('resolveOutDir expands ~ and ~/x to the home directory but leaves ~user alone', () => {
+  const env = {};
+  assert.equal(resolveOutDir({ flag: '~', env, config: null, cwd: '/work' }), homedir());
+  assert.equal(resolveOutDir({ flag: '~/x', env, config: null, cwd: '/work' }), join(homedir(), 'x'));
+  assert.equal(resolveOutDir({ env: { OURA_SYNC_OUT: '~/y' }, config: null, cwd: '/work' }), join(homedir(), 'y'));
+  assert.equal(resolveOutDir({ env, config: { ...CONFIG, outDir: '~/z' }, cwd: '/work' }), join(homedir(), 'z'));
+  assert.equal(resolveOutDir({ flag: '~user/x', env, config: null, cwd: '/work' }), '/work/~user/x');
+});
+
 test('resolveOutDir resolves relative paths against cwd', () => {
   assert.equal(resolveOutDir({ flag: 'exports', env: {}, config: null, cwd: '/work' }), '/work/exports');
 });

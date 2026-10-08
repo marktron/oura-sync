@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { UsageError } from '../src/errors.ts';
-import { exportFileName, isIsoDate, previousDay, resolveRange, todayLocal } from '../src/dates.ts';
+import { exportFileName, isIsoDate, nextDay, previousDay, resolveRange, todayLocal } from '../src/dates.ts';
 
 test('isIsoDate accepts YYYY-MM-DD and rejects everything else', () => {
   assert.equal(isIsoDate('2026-09-01'), true);
@@ -22,6 +22,14 @@ test('previousDay crosses month and year boundaries', () => {
   assert.equal(previousDay('2026-03-01'), '2026-02-28');
   assert.equal(previousDay('2028-03-01'), '2028-02-29');
   assert.equal(previousDay('2027-01-01'), '2026-12-31');
+});
+
+test('nextDay crosses month and year boundaries', () => {
+  assert.equal(nextDay('2026-09-10'), '2026-09-11');
+  assert.equal(nextDay('2026-02-28'), '2026-03-01');
+  assert.equal(nextDay('2028-02-28'), '2028-02-29');
+  assert.equal(nextDay('2028-02-29'), '2028-03-01');
+  assert.equal(nextDay('2026-12-31'), '2027-01-01');
 });
 
 test('exportFileName encodes both dates', () => {

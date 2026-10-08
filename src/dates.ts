@@ -21,6 +21,12 @@ export function previousDay(date: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function nextDay(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function exportFileName(start: string, end: string): string {
   return `${start}-to-${end}-oura-trends.csv`;
 }

@@ -110,8 +110,9 @@ export interface OutDirOptions {
   cwd: string;
 }
 
-/** Precedence: --out flag, OURA_SYNC_OUT, config.outDir, cwd. Relative paths resolve against cwd. */
+/** Precedence: --out flag, OURA_SYNC_OUT, config.outDir, cwd. A leading ~ expands to the home directory. Relative paths resolve against cwd. */
 export function resolveOutDir(opts: OutDirOptions): string {
   const chosen = opts.flag ?? (opts.env.OURA_SYNC_OUT || undefined) ?? opts.config?.outDir ?? opts.cwd;
-  return resolve(opts.cwd, chosen);
+  const expanded = chosen === '~' || chosen.startsWith('~/') ? homedir() + chosen.slice(1) : chosen;
+  return resolve(opts.cwd, expanded);
 }

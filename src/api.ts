@@ -13,6 +13,8 @@ export interface ApiClientOptions {
   fetchFn?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   baseUrl?: string;
+  /** Progress messages, such as rate-limit waits. Defaults to silent. */
+  log?: (message: string) => void;
 }
 
 export class OuraApi {
@@ -21,6 +23,7 @@ export class OuraApi {
   readonly #fetchFn: typeof fetch;
   readonly #sleep: (ms: number) => Promise<void>;
   readonly #baseUrl: string;
+  readonly #log: (message: string) => void;
 
   constructor(opts: ApiClientOptions) {
     this.#getAccessToken = opts.getAccessToken;
@@ -28,6 +31,7 @@ export class OuraApi {
     this.#fetchFn = opts.fetchFn ?? fetch;
     this.#sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     this.#baseUrl = opts.baseUrl ?? API_BASE;
+    this.#log = opts.log ?? (() => {});
   }
 
   /** Fetch every document in a usercollection for [start, end], following pagination. */
@@ -68,6 +72,7 @@ export class OuraApi {
         rateLimitRetries++;
         const header = Number(res.headers.get('retry-after'));
         const seconds = Number.isFinite(header) && header > 0 ? header : DEFAULT_RETRY_AFTER_SECONDS;
+        this.#log(`Rate limited by Oura; waiting ${seconds} s (retry ${rateLimitRetries}/${MAX_RATE_LIMIT_RETRIES})`);
         await this.#sleep(seconds * 1000);
         continue;
       }

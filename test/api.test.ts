@@ -4,7 +4,10 @@ import { ApiError, AuthRequiredError } from '../src/errors.ts';
 import { MAX_RATE_LIMIT_RETRIES, OuraApi } from '../src/api.ts';
 import { sequence } from './stub-fetch.ts';
 
-function client(fetchFn: typeof fetch, extra: { refreshes?: string[]; sleeps?: number[] } = {}) {
+function client(
+  fetchFn: typeof fetch,
+  extra: { refreshes?: string[]; sleeps?: number[]; logs?: string[] } = {},
+) {
   const refreshes = extra.refreshes ?? [];
   const sleeps = extra.sleeps ?? [];
   return new OuraApi({
@@ -14,6 +17,7 @@ function client(fetchFn: typeof fetch, extra: { refreshes?: string[]; sleeps?: n
       refreshes.push('refresh');
       return 'token-2';
     },
+    log: (m) => extra.logs?.push(m),
     sleep: async (ms) => {
       sleeps.push(ms);
     },
@@ -48,12 +52,14 @@ test('fetchCollection follows next_token until exhausted', async () => {
 
 test('429 waits Retry-After seconds and retries', async () => {
   const sleeps: number[] = [];
+  const logs: string[] = [];
   const { fetchFn, calls } = sequence([
     { status: 429, headers: { 'Retry-After': '7' } },
     { status: 200, body: { data: [], next_token: null } },
   ]);
-  await client(fetchFn, { sleeps }).fetchCollection('sleep', '2025-01-01', '2025-01-02');
+  await client(fetchFn, { sleeps, logs }).fetchCollection('sleep', '2025-01-01', '2025-01-02');
   assert.deepEqual(sleeps, [7000]);
+  assert.deepEqual(logs, [`Rate limited by Oura; waiting 7 s (retry 1/${MAX_RATE_LIMIT_RETRIES})`]);
   assert.equal(calls.length, 2);
 });
 
