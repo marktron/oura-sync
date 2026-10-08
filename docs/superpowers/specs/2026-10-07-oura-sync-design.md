@@ -49,7 +49,7 @@ Directory: `$XDG_CONFIG_HOME/oura-sync` or `~/.config/oura-sync`.
 - `tokens.json`: `{ accessToken, refreshToken, expiresAt }`.
 - Both are written with mode 0600 via a temp file in the same directory followed by rename, so an interrupted write never leaves a truncated file. On read, the JSON is shape-checked (required string and number fields present); a malformed file is reported by path rather than failing deep inside the run.
 
-Output directory resolution order: `--out` flag, `OURA_SYNC_OUT` environment variable, `outDir` in config, current working directory.
+Output directory resolution order: `--out` flag, `OURA_SYNC_OUT` environment variable, `outDir` in config, current working directory. A leading `~` or `~/` is expanded to the home directory, since neither JSON nor a quoted environment variable gets shell expansion.
 
 ## Commands
 
@@ -64,7 +64,7 @@ Also the default command when none is given.
 - `--start` is required. Each export is an explicit snapshot of a range; the tool does not infer coverage from earlier files, because that would freeze partial days (today's activity, a night whose sleep had not synced yet) into the record. Overlapping ranges across exports are expected and harmless.
 - `--end` defaults to yesterday (local date), the last day whose activity total is complete. Pass today explicitly if wanted.
 - If start is after end, or either date is malformed, exit 1.
-- Fetches four collections for `[start, end]`: `daily_sleep`, `sleep`, `daily_readiness`, `daily_activity`. Each is paginated with `next_token` until exhausted.
+- Fetches four collections for `[start - 1 day, end + 1 day]`: `daily_sleep`, `sleep`, `daily_readiness`, `daily_activity`. The one-day padding guards against the API treating `end_date` as exclusive and against sleep periods filed under a neighbouring day; row assembly drops anything outside `[start, end]`. Each is paginated with `next_token` until exhausted.
 - If no day in the range has any data, nothing is written and the exit code is 1 with a message.
 - Writes `<start>-to-<end>-oura-trends.csv` to the output directory (created if missing) and prints the path and row count. The file is written to a temp name and renamed into place. An existing file for the identical range is replaced; that is the correction case. Files for other ranges are never touched.
 
@@ -74,7 +74,9 @@ Also the default command when none is given.
 - Query params for sleep: the `sleep` collection filters on `day`, same as the daily collections, so one date range serves all four.
 - 429: wait `Retry-After` seconds (default 5 if the header is missing) and retry, up to 3 attempts, then fail.
 - 401: refresh token once and retry; a second 401 fails with the login message.
+- 429 waits are announced on stderr ("Rate limited by Oura; waiting N s (retry k/3)") so the wait is never a silent hang.
 - Any other non-2xx: print status and response body, exit 1. Failure never creates or modifies a CSV file; refreshed tokens may have been saved, which is correct since the old refresh token is already consumed.
+- Any other error the CLI meets (network down, callback port in use, request timeout, malformed config or token file, login timeout) prints its message on one line to stderr and exits 1. The stack trace is printed only when `OURA_SYNC_DEBUG` is set.
 - `fetch` is injectable for tests.
 
 ## Row assembly (`src/csv.ts`)
@@ -85,7 +87,7 @@ Also the default command when none is given.
 - Rows sorted by day ascending. (The old export appended out-of-order gap days at the end; sorting is the one deliberate deviation.)
 - Null or undefined values become empty cells. Numbers are written with JavaScript's default `String()` formatting. Timestamps are written exactly as the API returns them.
 - CSV quoting: a field is quoted only if it contains a comma, a quote, or a newline. Header is written verbatim from the mapping table, which preserves two Oura quirks: `Sleep Timin Score` and the trailing space in `Total Bedtime `.
-- Line endings `\n`, UTF-8, no BOM.
+- Line endings `\r\n` (CRLF), matching the old export byte for byte; UTF-8, no BOM.
 
 ## Column mapping (`src/mapping.ts`)
 
