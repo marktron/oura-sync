@@ -73,6 +73,8 @@ missing, open the Oura app, let it sync, and export that range again.
 
 ## Columns
 
+For a per-column reference with the API field and unit behind each header, see [docs/columns.md](docs/columns.md).
+
 All 54 headers of the old export are reproduced exactly, including Oura's
 own quirks ("Sleep Timin Score", trailing space in "Total Bedtime ").
 Sources:
