@@ -1,7 +1,7 @@
 # oura-sync
 
 Export your Oura daily trends to CSV, in the same layout as the web export
-Oura retired in 2026. One row per day, 54 columns, identical headers, so
+Oura retired. One row per day, 54 columns, identical headers, so
 spreadsheets and scripts built on the old export keep working.
 
 Requires Node 24 or newer. No runtime dependencies.
@@ -31,7 +31,25 @@ If an export ever says "Run `oura-sync login`", the stored token could not
 be refreshed (revoked, expired, or lost). Log in again; your configuration
 is kept.
 
+## Configuration
+
+`login` writes `config.json` in the config directory with these keys:
+
+| Key | Meaning |
+|---|---|
+| `clientId`, `clientSecret` | Credentials of your Oura API application |
+| `redirectPort` | Local port for the login callback (default 8477) |
+| `outDir` | Optional default output directory |
+
+If port 8477 is taken, edit `redirectPort` in `config.json` and register the
+matching redirect URI (`http://localhost:<port>/callback`) with Oura. Deleting
+`config.json` resets the credentials; `login` will ask for them again.
+
+`login` requests the `daily` and `heartrate` scopes.
+
 ## Exporting
+
+`export` is the default command, so `oura-sync --start ...` works too.
 
 ```sh
 oura-sync export --start 2026-01-01 --end 2026-01-31 --out ~/oura-exports
@@ -74,8 +92,13 @@ Known differences from the old export:
   may differ slightly.
 - Rows are sorted by date. The old export sometimes appended out-of-order
   days at the end.
+- Lines end in CRLF, like the original.
 - Days with no data at all are omitted. Days with partial data (for example
   activity but no sleep) keep their row with blanks.
+
+## Troubleshooting
+
+Errors print a single line. Set `OURA_SYNC_DEBUG=1` to get a stack trace.
 
 ## Development
 
