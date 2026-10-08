@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TOKEN_URL } from '../src/auth.ts';
-import { main, runExport, runLogin } from '../src/cli.ts';
+import { formatError, main, runExport, runLogin } from '../src/cli.ts';
 import { readConfig, readTokens, writeConfig, writeTokens, type Config } from '../src/config.ts';
 import { AuthRequiredError, NoDataError, UsageError } from '../src/errors.ts';
 import { HEADERS } from '../src/mapping.ts';
@@ -12,6 +12,9 @@ import { ACTIVITY, DAILY_SLEEP, LONG_SLEEP, NAP, READINESS } from './fixtures.ts
 import { stubFetch, type FetchCall } from './stub-fetch.ts';
 
 const CONFIG: Config = { clientId: 'cid', clientSecret: 'csec', redirectPort: 8477 };
+// Padding the fetch range makes the API return these; the export must drop them.
+const ACTIVITY_BEFORE_START = { ...ACTIVITY, id: 'activity-before', day: '2024-12-31', steps: 111 };
+const ACTIVITY_AFTER_END = { ...ACTIVITY, id: 'activity-after', day: '2025-01-04', steps: 222 };
 const FAR_FUTURE = Date.now() + 86_400_000;
 
 async function withTempDir(fn: (dir: string) => Promise<void>) {
@@ -24,11 +27,13 @@ async function withTempDir(fn: (dir: string) => Promise<void>) {
 }
 
 /** Routes the four collection requests to fixture data and the token URL to a refresh response. */
-function apiStub(data: { empty?: boolean } = {}) {
+function apiStub(data: { empty?: boolean; unauthorizedFirst?: boolean } = {}) {
+  let collectionCalls = 0;
   return stubFetch((call: FetchCall) => {
     if (call.url === TOKEN_URL) {
       return { status: 200, body: { access_token: 'refreshed', token_type: 'bearer', expires_in: 3600, refresh_token: 'r2' } };
     }
+    if (data.unauthorizedFirst && collectionCalls++ === 0) return { status: 401 };
     const path = new URL(call.url).pathname;
     const docs = path.endsWith('/daily_sleep')
       ? [DAILY_SLEEP]
@@ -37,7 +42,7 @@ function apiStub(data: { empty?: boolean } = {}) {
         : path.endsWith('/daily_readiness')
           ? [READINESS]
           : path.endsWith('/daily_activity')
-            ? [ACTIVITY]
+            ? [ACTIVITY, ACTIVITY_BEFORE_START, ACTIVITY_AFTER_END]
             : undefined;
     if (!docs) return undefined;
     return { status: 200, body: { data: data.empty ? [] : docs, next_token: null } };
@@ -71,7 +76,12 @@ test('runExport writes the CSV into a created output directory and returns its p
     assert.equal(cells[0], '2025-01-02');
     assert.equal(cells[HEADERS.indexOf('Average Resting Heart Rate')], '55.5');
     assert.ok(calls.every((c) => c.auth === 'Bearer tok'));
-    assert.ok(calls.every((c) => new URL(c.url).searchParams.get('start_date') === '2025-01-01'));
+    // The fetch range is padded by one day on each side.
+    assert.ok(calls.every((c) => new URL(c.url).searchParams.get('start_date') === '2024-12-31'));
+    assert.ok(calls.every((c) => new URL(c.url).searchParams.get('end_date') === '2025-01-04'));
+    // Padded-in documents outside [start, end] do not appear.
+    assert.ok(!lines.join('\n').includes('2024-12-31'));
+    assert.ok(!lines.join('\n').includes('2025-01-04'));
     assert.ok(logs.some((m) => m.includes('1 row') && m.includes(path)));
     assert.deepEqual(await readdir(outDir), ['2025-01-01-to-2025-01-03-oura-trends.csv']);
   });
@@ -86,7 +96,7 @@ test('runExport defaults end to yesterday', async () => {
       { configDir, env: {}, cwd: dir, today: '2025-01-04', fetchFn, log: () => {} },
     );
     assert.equal(path, join(dir, '2025-01-01-to-2025-01-03-oura-trends.csv'));
-    assert.ok(calls.every((c) => new URL(c.url).searchParams.get('end_date') === '2025-01-03'));
+    assert.ok(calls.every((c) => new URL(c.url).searchParams.get('end_date') === '2025-01-04'));
   });
 });
 
@@ -103,6 +113,27 @@ test('runExport refreshes an expiring token first and persists the new tokens', 
     assert.equal(calls[0]!.url, TOKEN_URL);
     assert.ok(calls.slice(1).every((c) => c.auth === 'Bearer refreshed'));
     assert.equal((await readTokens(configDir))?.refreshToken, 'r2');
+  });
+});
+
+test('runExport refreshes after a 401, persists the rotated tokens, and writes the CSV', async () => {
+  await withTempDir(async (dir) => {
+    const configDir = await seeded(dir);
+    const { fetchFn, calls } = apiStub({ unauthorizedFirst: true });
+
+    const path = await runExport(
+      { start: '2025-01-01', end: '2025-01-03', out: dir },
+      { configDir, env: {}, cwd: dir, today: '2025-01-10', fetchFn, log: () => {} },
+    );
+
+    assert.equal(calls[0]!.auth, 'Bearer tok');
+    assert.equal(calls[1]!.url, TOKEN_URL);
+    assert.equal(calls[2]!.auth, 'Bearer refreshed');
+    assert.ok(calls.slice(2).every((c) => c.auth === 'Bearer refreshed'));
+    const stored = await readTokens(configDir);
+    assert.equal(stored?.refreshToken, 'r2');
+    assert.equal(stored?.accessToken, 'refreshed');
+    assert.equal((await readFile(path, 'utf8')).split('\r\n').length, 3);
   });
 });
 
@@ -217,4 +248,35 @@ test('main --help returns 0', async () => {
   } finally {
     console.log = original;
   }
+});
+
+test('main prints a one-line message for any thrown error, without a stack', async () => {
+  await withTempDir(async (dir) => {
+    const saved = { xdg: process.env.XDG_CONFIG_HOME, debug: process.env.OURA_SYNC_DEBUG };
+    process.env.XDG_CONFIG_HOME = dir;
+    delete process.env.OURA_SYNC_DEBUG;
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (m: string) => errors.push(String(m));
+    try {
+      assert.equal(await main(['export', '--start', '2025-01-01']), 1);
+    } finally {
+      console.error = original;
+      if (saved.xdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = saved.xdg;
+      if (saved.debug !== undefined) process.env.OURA_SYNC_DEBUG = saved.debug;
+    }
+    assert.deepEqual(errors, [new AuthRequiredError('No configuration found. Run `oura-sync login` first.').message]);
+    assert.ok(!errors[0]!.includes('\n    at '));
+  });
+});
+
+test('formatError prints the message, appends a string code, and shows the stack only in debug mode', () => {
+  assert.equal(formatError(new Error('boom'), {}), 'boom');
+  assert.equal(formatError(Object.assign(new Error('boom'), { code: 'ENOENT' }), {}), 'boom (ENOENT)');
+  assert.equal(formatError(new Error('fetch failed', { cause: { code: 'ECONNREFUSED' } }), {}), 'fetch failed (ECONNREFUSED)');
+  assert.equal(formatError(Object.assign(new Error('boom'), { code: 42 }), {}), 'boom');
+  assert.match(formatError(new Error('boom'), { OURA_SYNC_DEBUG: '1' }), /at /);
+  assert.equal(formatError('plain', {}), 'plain');
+  assert.equal(formatError(undefined, {}), 'undefined');
 });

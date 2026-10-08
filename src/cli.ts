@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { platform } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -18,8 +18,8 @@ import {
   type Tokens,
 } from './config.ts';
 import { assembleDays, toCsv } from './csv.ts';
-import { exportFileName, previousDay, resolveRange, todayLocal } from './dates.ts';
-import { ApiError, AuthRequiredError, NoDataError, UsageError } from './errors.ts';
+import { exportFileName, nextDay, previousDay, resolveRange, todayLocal } from './dates.ts';
+import { AuthRequiredError, NoDataError, UsageError } from './errors.ts';
 import type { DailyActivity, DailyReadiness, DailySleep, SleepPeriod } from './oura-types.ts';
 
 const REFRESH_MARGIN_MS = 60_000;
@@ -71,13 +71,18 @@ export async function runExport(args: ExportArgs, deps: ExportDeps): Promise<str
     fetchFn: deps.fetchFn,
     getAccessToken: async () => (tokens.expiresAt - Date.now() < REFRESH_MARGIN_MS ? refresh() : tokens.accessToken),
     refreshAccessToken: refresh,
+    log: (m) => console.error(m),
   });
 
+  // Pad one day each side: Oura's date filters are not guaranteed to be inclusive at both ends
+  // for every collection. assembleDays drops anything outside [start, end].
+  const from = previousDay(range.start);
+  const to = nextDay(range.end);
   // Sequential on purpose: a concurrent 401 would trigger overlapping refreshes.
-  const dailySleep = await api.fetchCollection<DailySleep>('daily_sleep', range.start, range.end);
-  const sleep = await api.fetchCollection<SleepPeriod>('sleep', range.start, range.end);
-  const readiness = await api.fetchCollection<DailyReadiness>('daily_readiness', range.start, range.end);
-  const activity = await api.fetchCollection<DailyActivity>('daily_activity', range.start, range.end);
+  const dailySleep = await api.fetchCollection<DailySleep>('daily_sleep', from, to);
+  const sleep = await api.fetchCollection<SleepPeriod>('sleep', from, to);
+  const readiness = await api.fetchCollection<DailyReadiness>('daily_readiness', from, to);
+  const activity = await api.fetchCollection<DailyActivity>('daily_activity', from, to);
 
   const records = assembleDays({ dailySleep, sleep, readiness, activity }, range);
   if (records.length === 0) {
@@ -126,10 +131,27 @@ export async function runLogin(deps: LoginDeps): Promise<void> {
 
 function openBrowser(url: string): Promise<void> {
   const [cmd, args]: [string, string[]] =
-    platform() === 'darwin' ? ['open', [url]] : platform() === 'win32' ? ['cmd', ['/c', 'start', '', url]] : ['xdg-open', [url]];
+    platform() === 'darwin'
+      ? ['open', [url]]
+      : platform() === 'win32'
+        ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+        : ['xdg-open', [url]];
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, (err) => (err ? reject(err) : resolve()));
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('spawn', () => {
+      child.unref();
+      resolve();
+    });
   });
+}
+
+/** One line for the user; the full stack only when OURA_SYNC_DEBUG is set. */
+export function formatError(err: unknown, env: NodeJS.ProcessEnv = process.env): string {
+  if (!(err instanceof Error)) return String(err);
+  if (env.OURA_SYNC_DEBUG) return err.stack ?? err.message;
+  const code = (err as { code?: unknown }).code ?? (err.cause as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' ? `${err.message} (${code})` : err.message;
 }
 
 async function promptLine(question: string): Promise<string> {
@@ -177,15 +199,7 @@ export async function main(argv: string[]): Promise<number> {
     }
     return 0;
   } catch (err) {
-    if (
-      err instanceof UsageError ||
-      err instanceof AuthRequiredError ||
-      err instanceof ApiError ||
-      err instanceof NoDataError
-    ) {
-      console.error(err.message);
-      return 1;
-    }
-    throw err;
+    console.error(formatError(err));
+    return 1;
   }
 }

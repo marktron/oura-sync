@@ -52,6 +52,9 @@ export interface TokenResponse {
  * so a response without a replacement leaves us unable to refresh again.
  */
 export function toTokens(r: TokenResponse, now: number): Tokens {
+  if (typeof r.access_token !== 'string' || !r.access_token || !Number.isFinite(r.expires_in)) {
+    throw new AuthRequiredError('Oura returned an invalid token response. Run `oura-sync login`.');
+  }
   if (!r.refresh_token) {
     throw new AuthRequiredError('Oura returned no refresh token. Run `oura-sync login`.');
   }

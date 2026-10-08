@@ -52,6 +52,14 @@ test('authorizeUrl carries every required parameter', () => {
   assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
 });
 
+test('toTokens rejects a response without a usable access_token or expires_in', () => {
+  const bad = (r: Record<string, unknown>) => () => toTokens(r as never, NOW);
+  assert.throws(bad({ token_type: 'bearer', expires_in: 60, refresh_token: 'r' }), AuthRequiredError);
+  assert.throws(bad({ access_token: '', token_type: 'bearer', expires_in: 60, refresh_token: 'r' }), AuthRequiredError);
+  assert.throws(bad({ access_token: 'a', token_type: 'bearer', refresh_token: 'r' }), /invalid token response/);
+  assert.throws(bad({ access_token: 'a', token_type: 'bearer', expires_in: '60', refresh_token: 'r' }), AuthRequiredError);
+});
+
 test('toTokens computes expiresAt and requires a refresh token', () => {
   const fresh = toTokens({ access_token: 'a', token_type: 'bearer', expires_in: 3600, refresh_token: 'r1' }, NOW);
   assert.deepEqual(fresh, { accessToken: 'a', refreshToken: 'r1', expiresAt: NOW + 3_600_000 });
