@@ -148,7 +148,7 @@ Known difference from the old export: the API computes `average_heart_rate` and 
 
 ## Testing
 
-Unit tests, with fixtures taken from the example responses in the Oura OpenAPI document (no real user data in the repo):
+Unit tests, with synthetic fixture documents that follow the schemas in the Oura OpenAPI document (the document has no example responses; no real user data in the repo):
 
 - `mapping`: header list equals the 54 names in order, byte for byte.
 - `csv`: a day with all four documents produces the expected row; a day with activity only produces blanks in sleep and readiness columns; a day with no documents is omitted; rows are sorted; `long_sleep` is chosen over a nap, and the longest `long_sleep` over a shorter one; quoting rules.
