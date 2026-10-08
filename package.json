@@ -1,0 +1,20 @@
+{
+  "name": "oura-sync",
+  "version": "0.1.0",
+  "description": "Export your Oura daily trends to CSV in the layout of the retired Oura web export",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "oura-sync": "./dist/bin/oura-sync.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5.9"
+  }
+}

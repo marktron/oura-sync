@@ -1,4 +1,5 @@
 node_modules/
+dist/
 *.csv
 .env
 .DS_Store
