@@ -64,7 +64,7 @@ test('runExport writes the CSV into a created output directory and returns its p
     );
 
     assert.equal(path, join(outDir, '2025-01-01-to-2025-01-03-oura-trends.csv'));
-    const lines = (await readFile(path, 'utf8')).split('\n');
+    const lines = (await readFile(path, 'utf8')).split('\r\n');
     assert.equal(lines[0], HEADERS.join(','));
     assert.equal(lines.length, 3);
     const cells = lines[1]!.split(',');

@@ -64,5 +64,5 @@ export function formatCell(v: CellValue): string {
 export function toCsv(records: readonly DayRecord[], columns: readonly Column[] = COLUMNS): string {
   const lines = [columns.map((c) => formatCell(c.header)).join(',')];
   for (const r of records) lines.push(columns.map((c) => formatCell(c.value(r))).join(','));
-  return lines.join('\n') + '\n';
+  return lines.join('\r\n') + '\r\n';
 }
